@@ -264,5 +264,88 @@ namespace Gov.Cscp.VictimServices.Public.Controllers
 
             return requestJson;
         }
+
+        [HttpGet("generate/{pdfType}/{applicationId}")]
+        public async Task<IActionResult> GenerateVictimApplicationPDF(string pdfType, string applicationId)
+        {
+            try
+            {
+                if (pdfType == "invoice")
+                {
+                    var invoiceEndpoint = $"vsd_invoices({applicationId})";
+                    DynamicsResult invoiceResult = await _dynamicsResultService.Get(invoiceEndpoint);
+                    var invoiceJson = invoiceResult.result.ToString();
+                    CounsellorInvoiceFormDynamicsModel invoiceDynamics = new CounsellorInvoiceFormDynamicsModel();
+                    invoiceDynamics = System.Text.Json.JsonSerializer.Deserialize<CounsellorInvoiceFormDynamicsModel>(
+                        invoiceJson
+                    );
+
+                    var lineItemEndpoint = $"vsd_invoicelinedetails?$filter=_vsd_invoiceid_value eq {applicationId}";
+                    DynamicsResult lineItemResult = await _dynamicsResultService.Get(lineItemEndpoint);
+                    var lineItemJson = lineItemResult.result.ToString();
+                    invoiceDynamics.InvoiceLineItems = System
+                        .Text.Json.JsonSerializer.Deserialize<DynamicsCollection<LineItemDynamicsModel>>(lineItemJson)
+                        .Value;
+
+                    var invoice = invoiceDynamics.ToFormModel();
+
+                    string invoice_xml = getInvoiceXML(invoice);
+                    string invoice_requestJson = getAEMJSON(invoice_xml, pdfType);
+
+                    AEMResult invoice_aemResult = await _aemResultService.Post(invoice_requestJson);
+                    byte[] invoice_pdfBytes = Convert.FromBase64String(invoice_aemResult.responseMessage);
+                    return File(invoice_pdfBytes, "application/pdf", "VictimApplication.pdf");
+                }
+                var endpoint = $"vsd_applications({applicationId})";
+                DynamicsResult result = await _dynamicsResultService.Get(endpoint);
+                var json = result.result.ToString();
+                ApplicationDynamicsModel dynamics = new ApplicationDynamicsModel();
+                dynamics.Application = System.Text.Json.JsonSerializer.Deserialize<Application>(json);
+
+                var participantEndpoint = $"vsd_participants?$filter=_vsd_applicationid_value eq {applicationId}";
+                DynamicsResult participantResult = await _dynamicsResultService.Get(participantEndpoint);
+                var providers = System.Text.Json.JsonSerializer.Deserialize<DynamicsCollection<Providercollection>>(
+                    participantResult.result.ToString()
+                );
+                dynamics.ProviderCollection = providers.Value;
+
+                var policeEndpoint =
+                    $"vsd_applicationpolicenumbers?$filter=_vsd_applicationid_value eq {applicationId}";
+                DynamicsResult policeResult = await _dynamicsResultService.Get(policeEndpoint);
+                var policeFileNumberCollection = System.Text.Json.JsonSerializer.Deserialize<
+                    DynamicsCollection<Policefilenumbercollection>
+                >(policeResult.result.ToString());
+                dynamics.PoliceFileNumberCollection = policeFileNumberCollection.Value;
+
+                var courtInfomationEndpoint =
+                    $"vsd_applicationcourtinformations?$filter=_vsd_applicationid_value eq {applicationId}";
+                DynamicsResult courtInfomationResult = await _dynamicsResultService.Get(courtInfomationEndpoint);
+                var courtInfomationCollection = System.Text.Json.JsonSerializer.Deserialize<
+                    DynamicsCollection<Courtinfocollection>
+                >(courtInfomationResult.result.ToString());
+                dynamics.CourtInfoCollection = courtInfomationCollection.Value;
+
+                var application = dynamics.ToApplicationFormModel();
+
+                string xml = getApplicationXML(application);
+                string requestJson = getAEMJSON(xml, pdfType);
+
+                AEMResult aemResult = await _aemResultService.Post(requestJson);
+                byte[] pdfBytes = Convert.FromBase64String(aemResult.responseMessage);
+                return File(pdfBytes, "application/pdf", "VictimApplication.pdf");
+            }
+            catch (Exception e)
+            {
+                _logger.Error(e, "Unexpected error while getting victim application PDF. Source = VSD");
+                return BadRequest();
+            }
+            finally { }
+        }
+
+        public class DynamicsCollection<T>
+        {
+            [JsonPropertyName("value")]
+            public T[] Value { get; set; }
+        }
     }
 }

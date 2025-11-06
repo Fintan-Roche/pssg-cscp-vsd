@@ -57,6 +57,12 @@ namespace Gov.Cscp.VictimServices.Public.Services
 
             var _responseContent = await _httpResponse.Content.ReadAsStringAsync();
 
+            _httpRequest.Headers.Add(
+                "Prefer",
+                "odata.include-annotations=\"OData.Community.Display.V1.FormattedValue\""
+            );
+            _httpRequest.Headers.Add("Accept", "application/json");
+
             var result = new DynamicsResult();
             result.statusCode = _statusCode;
             result.responseMessage = _httpResponse;
